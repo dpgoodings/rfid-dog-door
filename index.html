@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RFID Automatic Dog Door | Repurposing 3D Printer Parts</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            background-color: #0066cc;
+            color: white;
+            text-align: center;
+            padding: 1em;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        h1, h2, h3 {
+            color: #0066cc;
+        }
+        pre {
+            background-color: #f4f4f4;
+            border-left: 3px solid #0066cc;
+            padding: 15px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 20px auto;
+        }
+        .section {
+            margin-bottom: 30px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 20px;
+        }
+        .alert {
+            background-color: #fffaed;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .materials-list li {
+            margin-bottom: 8px;
+        }
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>RFID Automatic Dog Door</h1>
+        <p>Repurposing Folgertech 2020 i3 3D Printer Parts for a Smart Pet Door</p>
+    </header>
+
+    <div class="section">
+        <h2>Project Overview</h2>
+        <p>This project transforms components from a Folgertech 2020 i3 3D printer into an RFID-controlled automatic dog door that opens when your pet approaches with their RFID tag and closes safely after they pass through.</p>
+        
+        <div class="alert">
+            <strong>Note:</strong> This project requires basic electronics knowledge and some mechanical assembly skills. Total build time is approximately 6-8 hours.
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Materials Needed</h2>
+        <h3>From Your 3D Printer:</h3>
+        <ul class="materials-list">
+            <li>RAMPS 1.4 board with Arduino Mega</li>
+            <li>Stepper motor and driver (preferably from X or Z axis)</li>
+            <li>Power supply</li>
+            <li>Linear rods and bearings</li>
+            <li>Aluminum extrusions from the frame</li>
+        </ul>
+
+        <h3>Additional Components:</h3>
+        <ul class="materials-list">
+            <li>MFRC522 RFID reader module</li>
+            <li>RFID tags for pet collars</li>
+            <li>Limit switches (2-3)</li>
+            <li>IR break beam sensor for safety</li>
+            <li>Sheet material for the door panel (acrylic, plastic, or thin plywood)</li>
+            <li>Misc hardware (screws, nuts, wires, etc.)</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>Mechanical Design</h2>
+        <p>The door uses a vertical sliding mechanism powered by a stepper motor. The frame is constructed from repurposed 2020 aluminum extrusions, with linear rods and bearings providing smooth motion for the door panel.</p>
+        
+        <h3>Assembly Steps:</h3>
+        <ol>
+            <li>Create a rectangular frame from the aluminum extrusions</li>
+            <li>Mount the linear rods vertically on either side</li>
+            <li>Attach linear bearings to the door panel</li>
+            <li>Install the stepper motor at the top with a pulley system or lead screw</li>
+            <li>Mount limit switches at the fully open and closed positions</li>
+            <li>Install the safety sensor across the door opening</li>
+        </ol>
+    </div>
+
+    <div class="section">
+        <h2>Electronics Setup</h2>
+        <h3>RAMPS Board Connections:</h3>
+        <ul>
+            <li><strong>RFID Reader (MFRC522):</strong>
+                <ul>
+                    <li>MOSI: Pin 51</li>
+                    <li>MISO: Pin 50</li>
+                    <li>SCK: Pin 52</li>
+                    <li>SS: Pin 53</li>
+                    <li>RST: Pin 49</li>
+                    <li>VCC: 3.3V</li>
+                    <li>GND: GND</li>
+                </ul>
+            </li>
+            <li><strong>Door Motor:</strong> Connect to X-axis output on RAMPS</li>
+            <li><strong>Limit Switches:</strong>
+                <ul>
+                    <li>Door Open: X-MAX endstop (Pin 2)</li>
+                    <li>Door Closed: Y-MIN endstop (Pin 14)</li>
+                </ul>
+            </li>
+            <li><strong>Safety Sensor:</strong> Connect to X-MIN endstop (Pin 3)</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>Software Implementation</h2>
+        <p>The Arduino code controls the RFID reader and stepper motor to create a state machine that manages the dog door operation:</p>
+        
+        <pre>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <AccelStepper.h>
+
+// RFID pins for Arduino Mega/RAMPS
+#define RST_PIN         49
+#define SS_PIN          53
+
+// RAMPS stepper motor pins (using X-axis motor driver)
+#define X_STEP_PIN      54
+#define X_DIR_PIN       55
+#define X_ENABLE_PIN    38
+
+// Safety and limit switch pins (using endstop pins on RAMPS)
+#define SAFETY_SENSOR   3  // IR break beam or similar (connected to X-MIN)
+#define LIMIT_OPEN      2  // Limit switch for fully open position (connected to X-MAX)
+#define LIMIT_CLOSED    14 // Limit switch for fully closed position (Y-MIN)
+
+// System constants
+#define DOOR_OPEN_TIME  10000  // Time door stays open in milliseconds
+#define MOTOR_SPEED     800    // Steps per second
+#define MOTOR_ACCEL     400    // Steps per second per second
+#define STEPS_TO_OPEN   5000   // Number of steps to fully open the door (adjust as needed)
+
+// Create instances
+MFRC522 rfid(SS_PIN, RST_PIN);
+AccelStepper stepper(AccelStepper::DRIVER, X_STEP_PIN, X_DIR_PIN);
+
+// Authorized RFID tags (replace with your dog's tag IDs)
+byte authorizedTags[][4] = {
+  {0xDE, 0xAD, 0xBE, 0xEF},  // Example tag 1
+  {0xCA, 0xFE, 0xBA, 0xBE}   // Example tag 2
+};
+
+// Door states
+enum DoorState {
+  CLOSED,
+  OPENING,
+  OPEN,
+  CLOSING
+};
+
+// Variables
+DoorState currentState = CLOSED;
+unsigned long doorOpenTime = 0;
+bool tagDetected = false;
+
+void setup() {
+  Serial.begin(115200); // Higher baud rate for RAMPS
+  
+  // Initialize SPI and RFID
+  SPI.begin();
+  rfid.PCD_Init();
+  
+  // Configure stepper motor
+  stepper.setEnablePin(X_ENABLE_PIN);
+  stepper.setPinsInverted(false, false, true); // Invert enable pin (LOW enables)
+  stepper.setMaxSpeed(MOTOR_SPEED);
+  stepper.setAcceleration(MOTOR_ACCEL);
+  stepper.enableOutputs();
+  
+  // Safety and limit switch setup
+  pinMode(SAFETY_SENSOR, INPUT_PULLUP);
+  pinMode(LIMIT_OPEN, INPUT_PULLUP);
+  pinMode(LIMIT_CLOSED, INPUT_PULLUP);
+  
+  Serial.println("RFID Dog Door Controller Started (RAMPS Board)");
+  
+  // Find home position (closed) during setup
+  findHomePosition();
+}
+
+void loop() {
+  // State machine for door control
+  switch (currentState) {
+    case CLOSED:
+      checkRFID();
+      if (tagDetected) {
+        currentState = OPENING;
+        Serial.println("Valid tag detected - Opening door");
+        tagDetected = false;
+        stepper.enableOutputs();
+      }
+      break;
+      
+    case OPENING:
+      // Move door to open position
+      if (digitalRead(LIMIT_OPEN) == LOW) {
+        // Door fully open (limit switch triggered)
+        stepper.stop();
+        stepper.disableOutputs();
+        doorOpenTime = millis();
+        currentState = OPEN;
+        Serial.println("Door fully open");
+      } else {
+        // Move toward open position
+        stepper.moveTo(STEPS_TO_OPEN);
+        stepper.run();
+      }
+      break;
+      
+    case OPEN:
+      // Keep door open for set time or until another tag read
+      checkRFID();
+      if (tagDetected) {
+        // Reset timer if tag detected again
+        doorOpenTime = millis();
+        tagDetected = false;
+        Serial.println("Timer reset - dog nearby");
+      }
+      
+      // Check if time to close
+      if (millis() - doorOpenTime > DOOR_OPEN_TIME) {
+        currentState = CLOSING;
+        stepper.enableOutputs();
+        Serial.println("Closing door");
+      }
+      break;
+      
+    case CLOSING:
+      // Check safety sensor
+      if (digitalRead(SAFETY_SENSOR) == LOW) {
+        // Obstacle detected, reopen door
+        currentState = OPENING;
+        Serial.println("Obstacle detected - reopening door");
+        break;
+      }
+      
+      // Move door to closed position
+      if (digitalRead(LIMIT_CLOSED) == LOW) {
+        // Door fully closed (limit switch triggered)
+        stepper.stop();
+        stepper.disableOutputs();
+        currentState = CLOSED;
+        Serial.println("Door fully closed");
+      } else {
+        // Move toward closed position
+        stepper.moveTo(0);
+        stepper.run();
+      }
+      break;
+  }
+}
+
+void checkRFID() {
+  // Check if there's a new card present
+  if (!rfid.PICC_IsNewCardPresent())
+    return;
+  
+  // Read the card
+  if (!rfid.PICC_ReadCardSerial())
+    return;
+    
+  // Check if it's an authorized tag
+  if (isAuthorizedTag(rfid.uid.uidByte)) {
+    tagDetected = true;
+  } else {
+    Serial.println("Unauthorized tag detected");
+  }
+  
+  // Halt PICC & stop encryption
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+}
+
+bool isAuthorizedTag(byte *uid) {
+  for (int i = 0; i < sizeof(authorizedTags) / sizeof(authorizedTags[0]); i++) {
+    bool match = true;
+    for (int j = 0; j < 4; j++) {
+      if (uid[j] != authorizedTags[i][j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      Serial.print("Authorized tag: ");
+      for (int j = 0; j < 4; j++) {
+        Serial.print(uid[j], HEX);
+        Serial.print(" ");
+      }
+      Serial.println();
+      return true;
+    }
+  }
+  return false;
+}
+
+void findHomePosition() {
+  Serial.println("Finding home position...");
+  
+  // Enable stepper motor
+  stepper.enableOutputs();
+  
+  // If already at closed position
+  if (digitalRead(LIMIT_CLOSED) == LOW) {
+    Serial.println("Already at home position");
+    stepper.setCurrentPosition(0);
+    return;
+  }
+  
+  // Move toward closed position until limit switch is triggered
+  Serial.println("Moving to home position");
+  stepper.setSpeed(-200); // Slower speed for homing
+  
+  while (digitalRead(LIMIT_CLOSED) == HIGH) {
+    stepper.runSpeed();
+    // Safety check - don't move too far
+    if (stepper.currentPosition() < -8000) {
+      Serial.println("Error: Could not find home position");
+      break;
+    }
+  }
+  
+  // Stop and set position
+  stepper.stop();
+  stepper.setCurrentPosition(0);
+  Serial.println("Home position found");
+}
+
+// Function to read and print the dog's tag ID for setup purposes
+void readTagID() {
+  // Only needed during setup to register your dog's tag
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+    Serial.print("Tag ID: ");
+    for (byte i = 0; i < rfid.uid.size; i++) {
+      Serial.print(rfid.uid.uidByte[i], HEX);
+      Serial.print(" ");
+    }
+    Serial.println();
+    
+    rfid.PICC_HaltA();
+    rfid.PCD_StopCrypto1();
+  }
+}
+        </pre>
+    </div>
+
+    <div class="section">
+        <h2>Registering Your Dog's RFID Tag</h2>
+        <p>To register your dog's RFID tag:</p>
+        <ol>
+            <li>Uncomment <code>readTagID()</code> in the loop function</li>
+            <li>Upload the modified code to the Arduino</li>
+            <li>Open the Serial Monitor at 115200 baud</li>
+            <li>Scan your dog's tag and note the ID that appears</li>
+            <li>Update the <code>authorizedTags</code> array with your dog's actual tag ID</li>
+            <li>Comment out <code>readTagID()</code> again and re-upload the code</li>
+        </ol>
+    </div>
+
+    <div class="section">
+        <h2>Safety Considerations</h2>
+        <ul>
+            <li>Always include safety sensors to prevent the door from closing on your pet</li>
+            <li>Consider adding a manual override in case of power failure</li>
+            <li>Weather-seal the electronics if the door is exposed to outdoor elements</li>
+            <li>Include a physical lock for nighttime security</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>Improvements and Modifications</h2>
+        <ul>
+            <li>Add a second safety sensor at a different height for dogs of different sizes</li>
+            <li>Implement a mobile app notification system when your dog uses the door</li>
+            <li>Add a camera to capture your pet coming and going</li>
+            <li>Include temperature sensors to prevent opening during extreme weather</li>
+            <li>Connect to a home automation system for scheduling access times</li>
+        </ul>
+    </div>
+
+    <footer>
+        <p>RFID Automatic Dog Door Project | Created 2025 | Open-source hardware and software</p>
+        <p>Questions? Comments? Improvements? Submit an issue on GitHub or contact the author.</p>
+    </footer>
+</body>
+</html>
